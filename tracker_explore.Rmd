@@ -1,0 +1,12 @@
+---
+title: "tracker_explore"
+author: "Holden Jones"
+date: "2026-04-21"
+output: html_document
+---
+
+```{r}
+library(baseballr)
+library(tidyverse)
+```
+
