@@ -10,3 +10,46 @@ library(baseballr)
 library(tidyverse)
 ```
 
+define game_ID searching function
+```{r}
+# Function to fetch GameID (game_pk)
+get_my_mlb_id <- function(game_date, home_team_name) {
+  
+  # 1. Fetch all games for that date
+  message(paste("Searching for:", home_team_name, "on", game_date))
+  day_games <- get_game_pks_mlb(date = game_date)
+  
+  # 2. Filter for the home team
+  # Note: Use grepl for partial matches (e.g., "Red Sox" instead of "Boston Red Sox")
+  specific_game <- day_games %>%
+    filter(grepl(home_team_name, teams.home.team.name, ignore.case = TRUE))
+  
+  # 3. Error handling: check if we found exactly one game
+  if (nrow(specific_game) == 0) {
+    return(NA) # Game not found
+  } else if (nrow(specific_game) > 1) {
+    # Handles doubleheaders - default to the first game
+    return(specific_game$game_pk[1])
+  } else {
+    return(specific_game$game_pk)
+  }
+}
+```
+
+```{r}
+# Load your manual file
+my_data <- read.csv("data/game_log.csv")
+
+# Apply the function to every row
+# This creates a new column 'game_ID' by looking at 'date' and 'home_team'
+my_data$game_ID <- mapply(get_my_mlb_id, my_data$date, my_data$home_team)
+
+# View the result
+head(my_data)
+
+# Save it back so you don't have to ping the API again
+write.csv(my_data, "my_watched_games_updated.csv", row.names = FALSE)
+```
+
+
+
