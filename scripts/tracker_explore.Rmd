@@ -5,51 +5,81 @@ date: "2026-04-21"
 output: html_document
 ---
 
+Load packages
 ```{r}
 library(baseballr)
-library(tidyverse)
+library(dplyr)
+library(jsonlite)
+library(purr)
+```
+
+load game_log
+```{r}
+game_log <- read_csv("data/processed_data/game_log.csv")
 ```
 
 define game_ID searching function
 ```{r}
-# Function to fetch GameID (game_pk)
-get_my_mlb_id <- function(game_date, home_team_name) {
+# 1. The ID Finder Function
+get_id <- function(game_date, team) {
+  # Standardize date
+  fmt_date <- as.character(as.Date(game_date))
   
-  # 1. Fetch all games for that date
-  message(paste("Searching for:", home_team_name, "on", game_date))
-  day_games <- get_game_pks_mlb(date = game_date)
+  # Fetch games from MLB API
+  day_data <- get_game_pks_mlb(date = fmt_date)
   
-  # 2. Filter for the home team
-  # Note: Use grepl for partial matches (e.g., "Red Sox" instead of "Boston Red Sox")
-  specific_game <- day_games %>%
-    filter(grepl(home_team_name, teams.home.team.name, ignore.case = TRUE))
+  # Safety check
+  if (is.null(day_data) || nrow(day_data) == 0) return(NA)
   
-  # 3. Error handling: check if we found exactly one game
-  if (nrow(specific_game) == 0) {
-    return(NA) # Game not found
-  } else if (nrow(specific_game) > 1) {
-    # Handles doubleheaders - default to the first game
-    return(specific_game$game_pk[1])
+  # Flatten nested data to access team names
+  df_flat <- jsonlite::flatten(day_data)
+  
+  # Search for the team name in home or away columns
+  # This finds "Red Sox" even if the API says "Boston Red Sox"
+  idx <- which(
+    grepl(team, df_flat$teams.home.team.name, ignore.case = TRUE) | 
+    grepl(team, df_flat$teams.away.team.name, ignore.case = TRUE)
+  )
+  
+  if (length(idx) > 0) {
+    return(df_flat$game_pk[idx[1]])
   } else {
-    return(specific_game$game_pk)
+    return(NA)
   }
 }
+
+# 2. Apply it to your game_log dataframe
+# Note: This might take a moment as it pings the API for each row
+game_log$gameID <- mapply(get_id, game_log$date, game_log$home_team)
+
+# 3. View your updated log
+print(game_log)
 ```
 
+extract all players that played appeared in games I saw
 ```{r}
-# Load your manual file
-my_data <- read.csv("data/game_log.csv")
+# Function to get a clean list of players from a gameID
+get_roster <- function(id) {
+  if (is.na(id)) return(NULL)
+  
+  # Get the box score data
+  bs <- mlb_boxscore(id)
+  
+  # Extract names from both teams
+  players <- bs %>% 
+    select(person_id, person_full_name, team_full_name)
+  
+  return(players)
+}
 
-# Apply the function to every row
-# This creates a new column 'game_ID' by looking at 'date' and 'home_team'
-my_data$game_ID <- mapply(get_my_mlb_id, my_data$date, my_data$home_team)
+# This will create a list of data frames containing every player 
+# you've seen in the games listed in game_log
+all_players_seen <- map(game_log$gameID, get_roster)
 
-# View the result
-head(my_data)
+# Combine into one big master list of unique players
+master_player_list <- bind_rows(all_players_seen) %>% distinct(person_id, .keep_all = TRUE)
 
-# Save it back so you don't have to ping the API again
-write.csv(my_data, "my_watched_games_updated.csv", row.names = FALSE)
+head(master_player_list)
 ```
-
 
 
